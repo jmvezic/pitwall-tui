@@ -1,0 +1,31 @@
+---
+source: src/state/archive_tests.rs
+expression: "summary(&state_at(&msgs, \"01:38:10\"))"
+---
+Dutch Grand Prix · Race | Race | Started | lap Some(31)/Some(72) | track Vsc
+sector flags: {}
+ 1 PIA   Leader   LAP 31  30  1:15.259  1:13.984 1 H  7  x2                 
+ 2 NOR   +3.355   +3.355  30  1:14.956  1:14.708 1 H  7  x2    -0.34        
+ 3 VER   +1.201   +4.556  30  1:15.329  1:15.247 1 M  7  x2    -0.23        
+ 4 HAD   +1.959   +6.888  30  1:15.286  1:14.875 1 H  7  x2    +0.07        
+ 5 RUS   +0.885   +7.773  30  1:15.302  1:15.220 1 H  7  x2    -0.09        
+ 6 LEC   +1.848   +9.621  30  1:14.953  1:14.953 1 H  9* x2    -0.04        
+ 7 ALB   +2.360  +13.434  30  1:15.244  1:15.244 1 H  7  x2    -0.14        
+ 8 ANT   +1.459  +14.893  30  1:15.011  1:14.965 1 H  7  x2    +0.36 ~5L    
+ 9 STR   +8.445  +21.210  30  1:16.012  1:15.242 1 H 22  x2    -0.75        
+10 OCO   +1.478  +22.688  30  1:16.526  1:16.526 0 H 30  x1    -0.67        
+11 BEA   +1.505  +22.285  30  1:16.396  1:16.141 0 H 30  x1    +0.27 ~6L    
+12 TSU   +0.659  +22.944  30  1:16.336  1:15.319 1 H 11  x2    +0.05 ~13L   
+13 ALO   +1.095  +24.039  30  1:16.500  1:15.053 1 H 12  x2    -0.09        
+14 GAS   +1.135  +25.174  30  1:16.385  1:16.326 1 H  7  x2    -0.07        
+15 COL   +1.674  +26.848  30  1:16.373  1:15.340 1 H 11  x2    -0.03        
+16 BOR   +0.591  +27.439  30  1:16.580  1:16.380 1 H  8  x2    -0.19        
+17 HUL   +2.196  +28.230  30  1:16.741  1:16.598 1 H 11  x2    -0.64        
+18 SAI  +73.319      1 L  29  1:14.913  1:14.913 2 S  5* x3    +2.02        
+19 LAW   +2.580      1 L  29  1:16.439  1:16.153 2 S  5* x3    -1.53        
+20 HAM                    22  1:16.926  1:15.684 0 M 22  x1                 Ret
+RCM LSome(31) SafetyCar: VIRTUAL SAFETY CAR DEPLOYED
+RCM LSome(31) Penalty: FIA STEWARDS: TURN 1 INCIDENT INVOLVING CARS 55 (SAI) AND 30 (LAW) UNDER INVESTIGATION
+RCM LSome(29) Blue: WAVED BLUE FLAG FOR CAR 30 (LAW) TIMED AT 15:41:55
+RCM LSome(29) Penalty: FIA STEWARDS: INCIDENT INVOLVING CAR 5 (BOR) WILL BE INVESTIGATED AFTER THE RACE - UNSAFE CONDITION
+RCM LSome(29) Blue: WAVED BLUE FLAG FOR CAR 30 (LAW) TIMED AT 15:41:37

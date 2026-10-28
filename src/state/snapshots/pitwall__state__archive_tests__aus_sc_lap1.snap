@@ -1,0 +1,34 @@
+---
+source: src/state/archive_tests.rs
+assertion_line: 212
+expression: "summary(&state_at(&msgs, \"01:15:00\"))"
+---
+Australian Grand Prix · Race | Race | Started | lap Some(2)/Some(57) | track SafetyCar
+sector flags: {8: DoubleYellow, 20: DoubleYellow}
+STOPPED 55 SAI lap 1 since 04:21:43
+STOPPED 7 DOO lap 1 since 04:20:28
+ 1 NOR   Leader    LAP 2   1                     0 I  1  x1                 
+ 2 VER   +1.177   +1.177   1                     0 I  1  x1                 
+ 3 PIA   +0.959   +2.136   1                     0 I  1  x1                 
+ 4 RUS   +1.675   +3.811   1                     0 I  1  x1                 
+ 5 LEC   +2.283   +6.094   1                     0 I  1  x1                 
+ 6 TSU   +1.445   +7.539   1                     0 I  1  x1                 
+ 7 ALB   +1.131   +8.670   1                     0 I  1  x1                 
+ 8 HAM   +0.703   +9.373   1                     0 I  1  x1                 
+ 9 GAS   +1.067   +9.759   1                     0 I  1  x1                 
+10 ALO   +3.177  +12.936   1                     0 I  1  x1                 
+11 STR   +1.641  +14.577   1                     0 I  1  x1                 
+12 HUL   +1.044  +15.621   1                     0 I  1  x1                 
+13 ANT   +0.764  +16.385   1                     0 I  1  x1                 
+14 BOR   +0.923  +17.308   1                     0 I  1  x1                 
+15 OCO   +1.953  +19.193   1                     0 I  1  x1                 
+16 LAW   +1.532  +20.725   1                     0 I  1* x3                 
+17 BEA   +1.496  +22.221   1                     0 I  1  x1                 
+18 SAI                     0                     0 I  0  x1                 
+19 DOO                     0                     0 I  0  x1                 
+20 HAD                     0                     0 I  0  x1                 Ret
+RCM LSome(2) SafetyCar: SAFETY CAR THROUGH THE PIT LANE
+RCM LSome(2) Yellow: DOUBLE YELLOW IN TRACK SECTOR 20
+RCM LSome(1) Yellow: DOUBLE YELLOW IN TRACK SECTOR 8
+RCM LSome(1) SafetyCar: SAFETY CAR DEPLOYED
+RCM LSome(1) Yellow: DOUBLE YELLOW IN TRACK SECTOR 8

@@ -1,0 +1,31 @@
+---
+source: src/state/archive_tests.rs
+expression: "summary(&state_at(&msgs, \"00:58:00\"))"
+---
+Belgian Grand Prix · Race | Race | Inactive | lap Some(1)/Some(44) | track Red
+sector flags: {}
+ 1 NOR   Leader    LAP 1   0                     0 I  0  x1                 Pit
+ 2 PIA                     0                     0 I  0  x1                 Pit
+ 3 LEC                     0                     0 I  0  x1                 Pit
+ 4 VER                     0                     0 I  0  x1                 Pit
+ 5 ALB                     0                     0 I  0  x1                 Pit
+ 6 RUS                     0                     0 I  0  x1                 
+ 7 TSU                     0                     0 I  0  x1                 
+ 8 HAD                     0                     0 I  0  x1                 
+ 9 LAW                     0                     0 I  0  x1                 
+10 BOR                     0                     0 I  0  x1                 
+11 OCO                     0                     0 I  0  x1                 
+12 BEA                     0                     0 I  0  x1                 
+13 GAS                     0                     0 I  0  x1                 
+14 HUL                     0                     0 I  0  x1                 
+15 COL                     0                     0 I  0  x1                 
+16 STR                     0                     0 I  0  x1                 
+17 SAI                     0                     0 I  0  x1                 
+18 HAM                     0                     0 I  0  x1                 
+19 ANT                     0                     0 I  0  x1                 
+20 ALO                     0                     0 I  0  x1                 
+RCM LSome(1) Red: RED FLAG
+RCM LSome(1) Other: STARTING PROCEDURE SUSPENDED
+RCM LSome(1) Drs: DRS DISABLED
+RCM LSome(1) SafetyCar: FORMATION LAP WILL BE STARTED BEHIND THE SAFETY CAR
+RCM LSome(1) Other: RISK OF RAIN FOR F1 RACE IS 100%

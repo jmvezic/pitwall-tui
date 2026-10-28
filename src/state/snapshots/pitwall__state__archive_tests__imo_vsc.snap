@@ -1,0 +1,31 @@
+---
+source: src/state/archive_tests.rs
+expression: "summary(&state_at(&msgs, \"01:35:20\"))"
+---
+Emilia Romagna Grand Prix · Race | Race | Started | lap Some(29)/Some(63) | track Vsc
+sector flags: {7: Yellow, 8: DoubleYellow}
+ 1 VER   Leader   LAP 29  28  1:21.579  1:20.856 0 M 28  x1                 
+ 2 ALB  +31.391  +31.391  28  1:22.457  1:21.583 0 M 28  x1                 
+ 3 PIA  +10.136  +39.639  28  1:21.203  1:20.698 1 H 15  x2                 
+ 4 HAD   +2.569  +40.813  28  1:23.448  1:21.233 0 M 28  x1    -2.25        
+ 5 ANT   +2.450  +43.263  28  1:22.397  1:21.239 0 H 28  x1    +1.05 ~3L    
+ 6 HAM   +2.247  +42.857  28  1:22.597  1:21.230 0 H 28  x1    -0.20        
+ 7 NOR   +1.069  +43.926  28  1:26.185  1:20.829 1 H  0  x2                 
+ 8 LEC   +3.768  +47.694  28  1:21.157  1:20.505 1 H 18  x2                 
+ 9 HUL   +6.313  +48.965  28  1:22.175  1:21.922 0 H 28  x1    -1.02i       
+10 BEA   +2.389  +51.354  28  1:21.953  1:21.885 0 H 28  x1    +0.22i ~11L  
+11 RUS   +1.232  +49.169  28  1:21.817  1:21.334 1 H 17  x2    +0.34 ~4L    
+12 TSU   +6.106  +55.275  28  1:22.527  1:21.993 0 H 28  x1    -0.85        
+13 SAI   +1.605  +56.880  28  1:22.787  1:21.268 1 H 17  x2    +0.01        
+14 ALO   +3.549  +59.548  28  1:22.391  1:21.401 1 H 17* x2    +0.11        
+15 STR   +5.238  +61.508  28  1:22.355  1:21.527 1 H 15* x2    -0.08        
+16 GAS   +4.564  +66.072  28  1:22.843  1:21.243 1 H 19  x2    -0.23        
+17 LAW   +6.111  +71.277  28  1:22.945  1:21.245 1 H 18  x2    -0.15        
+18 BOR   +2.386  +71.764  28  1:22.748  1:21.582 1 H 16  x2    +0.12        
+19 COL   +3.422  +75.186  28  1:22.797  1:20.798 1 H  6  x2                 
+20 OCO   +0.984  +68.421  27  1:22.392  1:21.413 1 H 26  x2                 
+RCM LSome(29) Yellow: YELLOW IN TRACK SECTOR 7
+RCM LSome(29) Yellow: DOUBLE YELLOW IN TRACK SECTOR 8
+RCM LSome(29) SafetyCar: VIRTUAL SAFETY CAR DEPLOYED
+RCM LSome(29) Yellow: YELLOW IN TRACK SECTOR 8
+RCM LSome(8) Penalty: CAR 10 (GAS) TIME 1:22.462 DELETED - TRACK LIMITS AT TURN 17 LAP 7 15:13:08

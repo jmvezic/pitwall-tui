@@ -1,0 +1,54 @@
+[package]
+name = "pitwall-tui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "F1 live timing in your terminal"
+license = "MIT"
+repository = "https://github.com/jmvezic/pitwall-tui"
+homepage = "https://github.com/jmvezic/pitwall-tui"
+readme = "README.md"
+keywords = ["f1", "formula1", "live-timing", "tui", "terminal"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "pitwall"
+path = "src/main.rs"
+
+[dependencies]
+aes = "0.9.3"
+anyhow = "1.0.104"
+base64 = "0.23.1"
+cbc = { version = "0.2.1", features = ["alloc"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+directories = "6.0.0"
+flate2 = "1.1.10"
+futures-util = "0.3.34"
+pbkdf2 = { version = "0.13.0", features = ["hmac"] }
+ratatui = "0.30.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "http2", "gzip"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.152", features = ["preserve_order"] }
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+tempfile = "3.27.0"
+tokio = { version = "1.53.2", features = ["rt", "macros", "time", "sync", "fs", "io-util", "signal", "process"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
+toml = "1.1.8"
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+insta = "1.49.0"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+# The profile that dist builds release binaries with
+[profile.dist]
+inherits = "release"
