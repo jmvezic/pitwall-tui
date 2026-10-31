@@ -976,7 +976,7 @@ fn drop_zone_row(widths: &[u16]) -> Row<'static> {
     }))
 }
 
-/// `PUSH 0:41`, `OUT 1:12`, `COOL`, `PIT` or `FIN`.
+/// `PUSH 0:41`, `OUT 1:12`, `COOL`, `PIT`, `STOP` or `FIN`.
 fn run_cell(q: &QualiInfo, now: DateTime<Utc>) -> Line<'static> {
     let clock = || {
         q.lap_start
@@ -991,6 +991,7 @@ fn run_cell(q: &QualiInfo, now: DateTime<Utc>) -> Line<'static> {
         RunState::Out => (format!("OUT{}", clock()), Style::new().fg(Color::Gray)),
         RunState::Cool => ("COOL".to_owned(), style::dim()),
         RunState::Pit => ("PIT".to_owned(), Style::new().fg(style::blue())),
+        RunState::Stopped => ("STOP".to_owned(), Style::new().fg(style::red())),
         RunState::Fin => ("FIN".to_owned(), style::dim()),
     };
     Line::from(Span::styled(text, st))

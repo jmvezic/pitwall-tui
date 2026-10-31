@@ -5,7 +5,7 @@
 //! the best lap is copied just before that reset. Mini-sector colours can't
 //! tell a push lap from a cool-down (laps after the chequered flag and some
 //! out laps are uncoloured), so push laps are told apart by their first
-//! sector time.
+//! sector time, and checked again after the second.
 
 use std::collections::HashMap;
 
@@ -16,12 +16,21 @@ use super::derive::TimeKind;
 use super::merge::indexed;
 use super::parse::{as_bool, as_str, as_u32, parse_laptime};
 
-/// A first sector within this factor of the car's best starts a push lap.
-/// Every qualifying push lap at Monza and Singapore 2026 was within 2.8%;
-/// practice long runs are around 4–5%.
-const PUSH_S1: f64 = 1.03;
+/// A first sector within this factor of the car's best starts a push lap,
+/// practice long runs included. Fitted on 25 sessions of 2026 (11 practice
+/// sessions, 14 qualifying and sprint qualifying, Monaco and Baku among
+/// them): 1.5% of practice laps within 7% of the car's best had a slower
+/// first sector (Suzuka, hard on tyres in the esses, 7%), 0.5% in
+/// qualifying. Some cool-downs start quicker: laps abandoned after the
+/// first sector.
+const PUSH_S1: f64 = 1.08;
 /// Before the car has a first sector, within this factor of anyone's.
-const PUSH_S1_FIELD: f64 = 1.07;
+const PUSH_S1_FIELD: f64 = 1.10;
+/// The first two sectors within this factor of the car's best keep it a
+/// push lap. Over the same sessions, at the line, this leaves 0.2% of
+/// practice and 0.5% of qualifying push laps called cool-downs, and 1.3%
+/// and 0.7% of cool-downs called push laps.
+const PUSH_S12: f64 = 1.10;
 
 /// How long after a new best time a gained position still counts: timing
 /// can send the position after the time.
@@ -67,7 +76,14 @@ pub struct Finished {
 struct Car {
     lap_start: Option<DateTime<Utc>>,
     phase: Phase,
+    /// Whether the lap before the current one was a push lap too: a long
+    /// run.
+    pushed_before: bool,
+    /// The current lap's first sector.
+    lap_s1: Option<f64>,
     best_s1: Option<f64>,
+    /// Best first and second sectors of one lap.
+    best_s12: Option<f64>,
     best: Option<BestLap>,
     finished: Option<Finished>,
     /// Whether the mini-sectors have reset since the lap started: until
@@ -151,6 +167,8 @@ impl QualiTracker {
             car.finished = None;
             car.lap_start = Some(now);
             car.phase = Phase::Out;
+            car.pushed_before = false;
+            car.lap_s1 = None;
             car.cleared = resets;
         } else if let Some(n) = as_u32(&delta["NumberOfLaps"])
             && as_u32(&old["NumberOfLaps"]).is_some_and(|was| n > was)
@@ -165,22 +183,26 @@ impl QualiTracker {
                 });
             }
             car.lap_start = Some(now);
+            car.lap_s1 = None;
             car.cleared = resets;
             // A first guess until the first sector says otherwise: a push
-            // follows the out lap, a cool-down follows a push.
+            // follows the out lap, a cool-down follows a push, unless the
+            // car is on a long run.
+            let pushed = car.phase == Phase::Push;
             car.phase = match car.phase {
                 Phase::Out | Phase::Cool => Phase::Push,
+                Phase::Push if car.pushed_before => Phase::Push,
                 Phase::Push => Phase::Cool,
             };
+            car.pushed_before = pushed;
         }
 
         if resets {
             car.cleared = true;
         }
 
-        if let Some(s1) = parse_laptime(as_str(&delta["Sectors"]["0"]["Value"]))
-            .or_else(|| parse_laptime(as_str(&delta["Sectors"][0]["Value"])))
-        {
+        if let Some(s1) = sector_time(delta, 0) {
+            car.lap_s1 = Some(s1);
             if car.phase != Phase::Out {
                 let limit = match car.best_s1 {
                     Some(b) => b * PUSH_S1,
@@ -192,6 +214,21 @@ impl QualiTracker {
                 car.phase = if s1 > limit { Phase::Cool } else { Phase::Push };
             }
             car.best_s1 = Some(car.best_s1.map_or(s1, |b| b.min(s1)));
+        }
+        // A lap abandoned after a quick first sector, or a long run lap
+        // slowed in the first.
+        if let (Some(s1), Some(s2)) = (car.lap_s1, sector_time(delta, 1)) {
+            let s12 = s1 + s2;
+            if car.phase != Phase::Out
+                && let Some(b) = car.best_s12
+            {
+                car.phase = if s12 > b * PUSH_S12 {
+                    Phase::Cool
+                } else {
+                    Phase::Push
+                };
+            }
+            car.best_s12 = Some(car.best_s12.map_or(s12, |b| b.min(s12)));
         }
     }
 
@@ -356,6 +393,13 @@ pub fn adds_up(sectors: &[SectorSnap], lap: &str) -> bool {
     };
     let sum: Option<f64> = sectors.iter().map(|s| parse_laptime(&s.value)).sum();
     sum.is_some_and(|sum| (sum - lap).abs() < 0.005)
+}
+
+/// A sector's time in a TimingData delta, whichever way its sectors come.
+fn sector_time(delta: &Value, i: usize) -> Option<f64> {
+    let s = &delta["Sectors"];
+    parse_laptime(as_str(&s[i.to_string()]["Value"]))
+        .or_else(|| parse_laptime(as_str(&s[i]["Value"])))
 }
 
 /// The start of a new lap clears the mini-sectors to 0.
@@ -524,6 +568,55 @@ mod tests {
         assert_eq!(q.phase("1"), Phase::Cool);
     }
 
+    /// Mexico City FP1 2026: Leclerc's and Pérez's long runs, 3–5% off
+    /// their best first sector.
+    #[test]
+    fn long_run_laps_are_pushes() {
+        let mut q = QualiTracker::default();
+        let old = line(1, "", "", 2049);
+        let lap = |n: u32| json!({"NumberOfLaps": n});
+        let sectors = |s1: &str, s2: &str| {
+            [
+                json!({"Sectors": {"0": {"Value": s1}}}),
+                json!({"Sectors": {"1": {"Value": s2}}}),
+            ]
+        };
+        q.on_timing("16", &json!({"PitOut": true}), &old, None, t(0));
+        let mut n = 1;
+        let mut lap_of = |q: &mut QualiTracker, s1: &str, s2: &str| {
+            n += 1;
+            q.on_timing("16", &lap(n), &old, None, t(n as i64 * 80));
+            let guess = q.phase("16");
+            for d in sectors(s1, s2) {
+                q.on_timing("16", &d, &old, None, t(n as i64 * 80 + 30));
+            }
+            (guess, q.phase("16"))
+        };
+        assert_eq!(lap_of(&mut q, "27.065", "26.0"), (Phase::Push, Phase::Push));
+        // The first lap of the run is guessed a cool-down.
+        assert_eq!(lap_of(&mut q, "28.354", "26.9"), (Phase::Cool, Phase::Push));
+        // From then on a push, as guessed.
+        assert_eq!(lap_of(&mut q, "28.023", "26.8"), (Phase::Push, Phase::Push));
+        // The end of the run.
+        assert_eq!(lap_of(&mut q, "34.924", "35.0"), (Phase::Push, Phase::Cool));
+        assert_eq!(lap_of(&mut q, "40.0", "40.0"), (Phase::Push, Phase::Cool));
+    }
+
+    #[test]
+    fn lap_abandoned_after_the_first_sector() {
+        let mut q = QualiTracker::default();
+        let old = line(1, "", "", 2049);
+        let s = |i: &str, v: &str| json!({"Sectors": {i: {"Value": v}}});
+        q.on_timing("1", &s("0", "27.0"), &old, None, t(0));
+        q.on_timing("1", &s("1", "26.0"), &old, None, t(30));
+        q.on_timing("1", &json!({"NumberOfLaps": 2}), &old, None, t(80));
+        q.on_timing("1", &json!({"NumberOfLaps": 3}), &old, None, t(160));
+        q.on_timing("1", &s("0", "27.2"), &old, None, t(190));
+        assert_eq!(q.phase("1"), Phase::Push);
+        q.on_timing("1", &s("1", "33.0"), &old, None, t(225));
+        assert_eq!(q.phase("1"), Phase::Cool);
+    }
+
     #[test]
     fn first_push_judged_against_the_field() {
         let mut q = QualiTracker::default();
@@ -531,7 +624,7 @@ mod tests {
         let s1 = |v: &str| json!({"Sectors": {"0": {"Value": v}}});
         let lap = |n: u32| json!({"NumberOfLaps": n});
         q.on_timing("1", &s1("27.0"), &old, Some(1), t(0));
-        for (num, s, want) in [("2", "28.8", Phase::Push), ("3", "29.0", Phase::Cool)] {
+        for (num, s, want) in [("2", "29.6", Phase::Push), ("3", "29.8", Phase::Cool)] {
             q.on_timing(num, &json!({"PitOut": true}), &old, Some(1), t(0));
             q.on_timing(num, &lap(2), &old, Some(1), t(90));
             q.on_timing(num, &s1(s), &old, Some(1), t(120));

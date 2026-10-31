@@ -338,6 +338,8 @@ pub enum RunState {
     Out,
     Push,
     Cool,
+    /// Stopped on track, or retired.
+    Stopped,
     /// Took the chequered flag.
     Fin,
 }
@@ -712,6 +714,8 @@ impl State {
             RunState::Fin
         } else if as_bool(&l["InPit"]) == Some(true) {
             RunState::Pit
+        } else if self.stops.stopped.contains_key(num) || self.retired.contains(num) {
+            RunState::Stopped
         } else {
             match phase {
                 Phase::Out => RunState::Out,
