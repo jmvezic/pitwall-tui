@@ -17,5 +17,8 @@ formula = "pitwall"
 publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+# Runner overrides: dist 0.33.1 builds aarch64-apple-darwin on macos-14,
+# which GitHub retires on 2026-11-02.
+github-custom-runners = { aarch64-apple-darwin = "macos-15" }
 # Whether to install an updater program
 install-updater = false
