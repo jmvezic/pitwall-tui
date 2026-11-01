@@ -196,11 +196,22 @@ impl Fight {
     /// nearest place that still does it.
     fn block(&self, l: usize, needs: Option<u32>) -> Block {
         let e = &self.entries[l];
-        let pl = match needs {
+        let mut pl = match needs {
             Some(max) => Some(e.pos.map_or(max, |cur| cur.min(max))),
             None => e.pos,
         };
         let rivals = self.rival_conditions(l, pl);
+        // Ask no more than it takes: the lowest place that asks the same
+        // of the rivals, not just where they're running.
+        if let Some(p) = pl {
+            let last = needs.unwrap_or(self.entries.len() as u32);
+            pl = Some(
+                (p + 1..=last)
+                    .take_while(|&q| self.rival_conditions(l, Some(q)) == rivals)
+                    .last()
+                    .unwrap_or(p),
+            );
+        }
         // Where they finish matters unless scoring nothing asks no more
         // of the rivals.
         let own = pl.filter(|_| needs.is_some() || self.rival_conditions(l, None) != rivals);
@@ -348,6 +359,24 @@ mod tests {
     }
 
     #[test]
+    fn mexico_lowest_place_that_does_it() {
+        // Mexico City 2026: ANT 365 (9 wins), RUS 242 (3), four grands
+        // prix after it. P9 does it even with RUS winning: level on points,
+        // ANT ahead on wins (9 to 8). Running P4 mustn't say P4.
+        let entries = vec![
+            entry("RUS", 242.0, 3, 1),
+            entry("HAM", 241.0, 1, 2),
+            entry("VER", 236.0, 2, 3),
+            entry("ANT", 365.0, 9, 4),
+        ];
+        let f = Fight::new(field(entries), &Rules::for_year(2026), false, &[false; 4]);
+        let b = &f.blocks()[0];
+        assert_eq!(b.tla, "ANT");
+        assert!(b.secured);
+        assert_eq!(lines(b), ["ANT 9 or above ✓"]);
+    }
+
+    #[test]
     fn retired_leader_can_no_longer() {
         let mut f = austin(&["RUS", "HAM"]);
         f.entries[0].pos = None;
@@ -393,8 +422,8 @@ mod tests {
         ];
         let f = Fight::new(field(entries), &Rules::for_year(2025), false, &[]);
         let b = f.blocks();
-        // From P2 nobody can catch NOR.
-        assert_eq!(lines(&b[0]), ["NOR 2 or above ✓"]);
+        // A podium is enough: 423 to VER's 421 at best.
+        assert_eq!(lines(&b[0]), ["NOR 3 or above ✓"]);
         assert!(b[0].secured);
         assert_eq!(lines(&b[1]), ["VER 1 ✓", "NOR 4 or below"]);
         assert_eq!(
