@@ -38,6 +38,9 @@ const SIGN_IN_CHECK: Duration = Duration::from_secs(30);
 pub const STALE_AFTER: Duration = Duration::from_secs(15);
 /// Longest live delay.
 pub const MAX_DELAY: Duration = Duration::from_secs(300);
+/// Snapshot topics shown at once while the rest waits out the delay: who
+/// and where, which give nothing away.
+const SPOILER_FREE: [&str; 2] = ["SessionInfo", "DriverList"];
 /// Below this width race control becomes a full-screen view.
 pub const WIDE: u16 = 131;
 
@@ -240,7 +243,41 @@ impl App {
         {
             self.start_arrived = Some(now);
         }
+        // With nothing on screen yet, show what can't spoil anything now.
+        if let FeedEvent::Snapshot(snap) = &ev
+            && !self.delay.is_zero()
+            && !self.has_timing()
+        {
+            let early = snap
+                .iter()
+                .filter(|(topic, _)| SPOILER_FREE.contains(&topic.as_str()))
+                .map(|(topic, data)| (topic.clone(), data.clone()))
+                .collect();
+            let ch = self.state.apply_snapshot(early);
+            self.pending.union(ch);
+        }
         self.held.push_back((now, ev));
+    }
+
+    fn has_timing(&self) -> bool {
+        self.state.topics.contains_key("TimingData")
+    }
+
+    /// Live, with no timing on screen yet and the snapshot waiting out the
+    /// delay: how long it has left, and how much of the delay has passed.
+    pub fn buffering(&self) -> Option<(Duration, f64)> {
+        if !matches!(self.source, Source::Live(_)) || self.delay.is_zero() || self.has_timing() {
+            return None;
+        }
+        let (arrived, _) = self
+            .held
+            .iter()
+            .find(|(_, ev)| matches!(ev, FeedEvent::Snapshot(_)))?;
+        let waited = arrived.elapsed();
+        Some((
+            self.delay.saturating_sub(waited),
+            (waited.as_secs_f64() / self.delay.as_secs_f64()).min(1.0),
+        ))
     }
 
     /// Applies held data that has waited out the delay.
@@ -649,12 +686,16 @@ impl App {
             }
             KeyCode::Char('f') => self.rc_filter = !self.rc_filter,
             KeyCode::Char('x') => self.reset(),
-            KeyCode::Char(c @ ('s' | 'v' | '+' | '=' | '-' | '_'))
+            KeyCode::Char(c @ ('s' | 'v' | '+' | '=' | '-' | '_' | '.'))
                 if matches!(self.source, Source::Live(_)) =>
             {
                 let secs = self.delay.as_secs();
                 match c {
                     's' => self.sync_to_start(),
+                    '.' => {
+                        self.set_delay(Duration::ZERO);
+                        self.notice = Some("delay cleared".into());
+                    }
                     'v' => self.video_time = Some(String::new()),
                     // `=` is + without shift.
                     '+' | '=' => self.set_delay(Duration::from_secs(secs + 1)),
@@ -865,6 +906,52 @@ mod tests {
         app.set_delay(Duration::ZERO);
         assert!(app.held.is_empty());
         assert_eq!(app.state.topics["LapCount"]["CurrentLap"], 7);
+    }
+
+    #[test]
+    fn buffers_the_snapshot_showing_only_who_and_where() {
+        let mut app = live_app(30);
+        let snap = json!({
+            "SessionInfo": {"Name": "Race", "Type": "Race"},
+            "DriverList": {"1": {"Tla": "NOR"}},
+            "TimingData": {"Lines": {"1": {"Position": "1"}}},
+            "TrackStatus": {"Status": "5"},
+        });
+        app.on_arrival(FeedEvent::Snapshot(snap.as_object().unwrap().clone()));
+        app.release_held();
+        assert!(app.state.topics.contains_key("DriverList"));
+        assert!(app.state.topics.contains_key("SessionInfo"));
+        assert!(!app.state.topics.contains_key("TimingData"));
+        assert!(!app.state.topics.contains_key("TrackStatus"));
+        let (left, done) = app.buffering().unwrap();
+        assert!(left > Duration::from_secs(29) && done < 0.1);
+
+        // `.` clears the delay: everything shows.
+        app.set_delay(Duration::ZERO);
+        assert!(app.buffering().is_none());
+        assert!(app.state.topics.contains_key("TimingData"));
+        assert!(app.state.topics.contains_key("TrackStatus"));
+    }
+
+    #[test]
+    fn no_buffering_without_a_delay_or_with_data_on_screen() {
+        let snap = || {
+            FeedEvent::Snapshot(
+                json!({"TimingData": {"Lines": {}}})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            )
+        };
+        let mut app = live_app(0);
+        app.on_arrival(snap());
+        assert!(app.buffering().is_none());
+        app.release_held();
+
+        // A reconnect keeps the data on screen until the new snapshot is due.
+        app.set_delay(Duration::from_secs(30));
+        app.on_arrival(snap());
+        assert!(app.buffering().is_none());
     }
 
     #[test]

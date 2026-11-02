@@ -6,7 +6,9 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, TableState,
+};
 
 use super::strip::{self, StripCtx};
 use super::{App, STALE_AFTER, Source, View, WIDE, style};
@@ -98,6 +100,60 @@ pub fn draw(f: &mut Frame, app: &App, blink: bool) {
             draw_tower(f, bottom, app, area.width < NARROW, blink);
         }
     }
+    if let Some((left, done)) = app.buffering() {
+        draw_buffering(f, body, left, done);
+    }
+}
+
+/// Across the middle of the screen while the first data waits out the
+/// delay.
+fn draw_buffering(f: &mut Frame, area: Rect, left: std::time::Duration, done: f64) {
+    const HEIGHT: u16 = 6;
+    let [_, band, _] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(HEIGHT.min(area.height)),
+        Constraint::Min(0),
+    ])
+    .areas(area);
+    let block = Block::new()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_type(BorderType::Thick)
+        .border_style(Style::new().fg(style::yellow()));
+    let inner = block.inner(band);
+    let label = format!("BUFFERING TO SET DELAY ({}s): ", left.as_secs_f64().ceil());
+    // The bar takes what's left of the line, within reason.
+    let bar_w = (inner.width as usize)
+        .saturating_sub(label.chars().count() + 6)
+        .clamp(10, 60);
+    let filled = ((bar_w as f64 * done).round() as usize).min(bar_w);
+    let bold = Style::new()
+        .fg(style::yellow())
+        .add_modifier(Modifier::BOLD);
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(label, bold),
+            Span::styled("[", bold),
+            Span::styled("=".repeat(filled), bold),
+            Span::raw(" ".repeat(bar_w - filled)),
+            Span::styled("]", bold),
+        ]),
+        Line::from(vec![
+            Span::styled("Press ", style::dim()),
+            Span::styled(
+                ".",
+                Style::new().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" (dot) to clear delay", style::dim()),
+        ]),
+    ];
+    f.render_widget(Clear, band);
+    f.render_widget(
+        Paragraph::new(text)
+            .alignment(Alignment::Center)
+            .block(block),
+        band,
+    );
 }
 
 pub(super) fn panel(title: &str) -> Block<'_> {
@@ -150,22 +206,28 @@ fn draw_banner(f: &mut Frame, area: Rect, app: &App, blink: bool) {
     let right = match &app.source {
         Source::Live(_) => {
             let since = app.last_msg.map(|t| t.elapsed().as_secs());
-            match (&app.conn, app.is_stale()) {
-                (Some(ConnStatus::Disconnected(why)), _) => Span::styled(
+            match (&app.conn, app.is_stale(), app.buffering()) {
+                (Some(ConnStatus::Disconnected(why)), ..) => Span::styled(
                     format!(
                         "RECONNECTING ({}) ",
                         why.chars().take(40).collect::<String>()
                     ),
                     Style::new().fg(style::red()),
                 ),
-                (Some(ConnStatus::Connecting) | None, _) => {
+                (Some(ConnStatus::Connecting) | None, ..) => {
                     Span::styled("CONNECTING… ", Style::new().fg(style::yellow()))
                 }
-                (_, true) if since.is_some() => Span::styled(
+                (_, true, _) if since.is_some() => Span::styled(
                     format!("STALE {}s ", since.unwrap_or(STALE_AFTER.as_secs())),
                     Style::new().fg(style::red()).add_modifier(Modifier::BOLD),
                 ),
-                (_, true) => Span::styled("WAITING FOR DATA ", Style::new().fg(style::yellow())),
+                (_, true, _) => Span::styled("WAITING FOR DATA ", Style::new().fg(style::yellow())),
+                (.., Some((left, _))) => Span::styled(
+                    format!("BUFFERING {}s ", left.as_secs_f64().ceil()),
+                    Style::new()
+                        .fg(style::yellow())
+                        .add_modifier(Modifier::BOLD),
+                ),
                 // Seconds since the last message: a heartbeat for the feed.
                 _ => {
                     let since = since.unwrap_or(0);
@@ -227,7 +289,9 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         if app.rc_filter { ":on" } else { "" }
     );
     if matches!(app.source, Source::Live(_)) {
-        keys.push_str("  x reset  s sync at lights out  v sync to video time  +/- delay");
+        keys.push_str(
+            "  x reset  s sync at lights out  v sync to video time  +/- delay  . clear delay",
+        );
     }
     if app.token_file.is_some() && app.sign_in.is_some_and(|s| s != SignIn::Valid) {
         keys.push_str("  l sign in");
