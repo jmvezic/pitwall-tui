@@ -11,6 +11,8 @@ pub mod laps;
 pub mod merge;
 pub mod parse;
 pub mod quali;
+#[cfg(test)]
+mod quali_bench;
 pub mod title;
 pub mod track;
 

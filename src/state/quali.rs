@@ -89,6 +89,10 @@ struct Car {
     /// Whether the mini-sectors have reset since the lap started: until
     /// then the timing line still shows the lap before.
     cleared: bool,
+    /// The sectors whose time has come since the mini-sectors reset. The
+    /// last mini-sector of a sector can come before its time, and until
+    /// then the timing line shows the time of the lap before.
+    timed: Vec<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -98,6 +102,8 @@ pub struct QualiTracker {
     part: Option<u32>,
     /// Fastest time in each sector this part, by anyone.
     fastest: Vec<f64>,
+    /// Fastest time in each sector this session, by anyone.
+    session_fastest: Vec<f64>,
     standings: Standings,
 }
 
@@ -134,10 +140,8 @@ impl QualiTracker {
         }
         for (k, s) in delta["Sectors"].as_object().into_iter().flatten() {
             if let (Ok(i), Some(t)) = (k.parse::<usize>(), parse_laptime(as_str(&s["Value"]))) {
-                if self.fastest.len() <= i {
-                    self.fastest.resize(i + 1, f64::INFINITY);
-                }
-                self.fastest[i] = self.fastest[i].min(t);
+                lower(&mut self.fastest, i, t);
+                lower(&mut self.session_fastest, i, t);
             }
         }
 
@@ -199,6 +203,17 @@ impl QualiTracker {
 
         if resets {
             car.cleared = true;
+            car.timed.clear();
+        }
+        for (k, s) in delta["Sectors"].as_object().into_iter().flatten() {
+            if let Ok(i) = k.parse::<usize>()
+                && !as_str(&s["Value"]).is_empty()
+            {
+                if car.timed.len() <= i {
+                    car.timed.resize(i + 1, false);
+                }
+                car.timed[i] = true;
+            }
         }
 
         if let Some(s1) = sector_time(delta, 0) {
@@ -295,6 +310,17 @@ impl QualiTracker {
         }
     }
 
+    /// Sectors of the last lap that was the car's best in its part, which
+    /// may be an earlier part.
+    pub fn last_best(&self, num: &str) -> Option<&[SectorSnap]> {
+        Some(self.cars.get(num)?.best.as_ref()?.sectors.as_slice())
+    }
+
+    /// The fastest time in each sector this session, by anyone.
+    pub fn session_fastest(&self) -> &[f64] {
+        &self.session_fastest
+    }
+
     pub fn phase(&self, num: &str) -> Phase {
         self.cars.get(num).map_or_else(Phase::default, |c| c.phase)
     }
@@ -302,6 +328,13 @@ impl QualiTracker {
     /// Whether the timing line shows the current lap yet.
     pub fn cleared(&self, num: &str) -> bool {
         self.cars.get(num).is_some_and(|c| c.cleared)
+    }
+
+    /// Whether sector `i` of the lap in progress has its time yet.
+    pub fn timed(&self, num: &str, i: usize) -> bool {
+        self.cars
+            .get(num)
+            .is_some_and(|c| c.timed.get(i).copied().unwrap_or(false))
     }
 
     pub fn lap_start(&self, num: &str) -> Option<DateTime<Utc>> {
@@ -321,6 +354,14 @@ impl QualiTracker {
     }
 }
 
+/// Keeps the lowest time seen for sector `i`.
+fn lower(best: &mut Vec<f64>, i: usize, t: f64) {
+    if best.len() <= i {
+        best.resize(i + 1, f64::INFINITY);
+    }
+    best[i] = best[i].min(t);
+}
+
 /// The car's best time in qualifying `part`, or in practice, which has no
 /// parts.
 pub fn part_best(line: &Value, part: Option<u32>) -> &str {
@@ -332,58 +373,51 @@ pub fn part_best(line: &Value, part: Option<u32>) -> &str {
         .map_or("", |t| as_str(&t["Value"]))
 }
 
-/// What a mini-sector says about the sector it's in, as a share of the
-/// driver's own best time for that sector, per mini-sector. Coloured ones
-/// (`+` or `-`) come with sectors faster than the driver's best lap, grey
-/// ones with slower: fitted on every push lap of the 2026 Monza and
-/// Singapore qualifying sessions.
-const MINI_COLOURED: f64 = -0.020;
-const MINI_GREY: f64 = 0.0165;
+/// How much slower than the fastest sector, scaled to the lap's pace so
+/// far, a sector of the car's reference lap may be and still be expected
+/// again. A slower one was a prep lap, traffic or a mistake, and the scaled
+/// fastest sector is expected instead. Fitted, with the rest of
+/// [`project`], on every qualifying and sprint qualifying push lap of 2026:
+/// see `quali_bench`.
+const REFERENCE_SLACK: f64 = 0.005;
 
 /// The lap time `sectors` (a lap in progress) is heading for: the sectors
-/// done, then the driver's own best lap (`own`) for the rest, adjusted in
-/// the sector being driven by the mini-sectors passed. Without an own best
-/// lap, P1's lap for the rest, slowed by how far behind it the lap is so
-/// far.
-pub fn project(
-    sectors: &[SectorSnap],
-    own: &[SectorSnap],
-    p1: Option<&[SectorSnap]>,
-) -> Option<f64> {
+/// done, then for each sector to come the car's reference lap (`lap`, its
+/// best lap) or, where that is slow, the session's fastest time
+/// (`fastest`) scaled by the pace so far against it. In the first sector,
+/// the reference lap again: guessing an improvement there called more laps
+/// wrong.
+///
+/// The mini-sectors passed say nothing more: over 2026 their colours
+/// moved the sector they're in by a few thousandths of its time.
+pub fn project(sectors: &[SectorSnap], lap: Option<&[f64]>, fastest: &[f64]) -> Option<f64> {
     let done: Vec<f64> = sectors
         .iter()
         .map_while(|s| parse_laptime(&s.value))
         .collect();
-    let current = sectors.get(done.len());
-    let passed = current.map_or(0, |s| s.segments.iter().filter(|&&g| g != 0).count());
-    if done.is_empty() && passed == 0 {
+    let n = sectors.len();
+    let lap = lap.filter(|l| l.len() == n);
+    if done.is_empty() {
+        let started = sectors
+            .first()
+            .is_some_and(|s| s.segments.iter().any(|&g| g != 0));
+        return lap.filter(|_| started).map(|l| l.iter().sum());
+    }
+    if fastest.len() != n || fastest.iter().any(|t| !t.is_finite()) {
         return None;
     }
     let so_far: f64 = done.iter().sum();
-
-    let own: Option<Vec<f64>> = own.iter().map(|s| parse_laptime(&s.value)).collect();
-    if let Some(own) = own.filter(|o| o.len() == sectors.len()) {
-        let mut rest: f64 = own[done.len()..].iter().sum();
-        if let Some(s) = current {
-            let n = s.segments.len() as f64;
-            let share: f64 = s
-                .segments
-                .iter()
-                .filter(|&&g| g != 0 && g & 16 == 0)
-                .map(|&g| if g & 3 == 0 { MINI_GREY } else { MINI_COLOURED })
-                .sum();
-            rest += own[done.len()] * share / n;
-        }
-        return Some(so_far + rest);
-    }
-
-    let p1: Vec<f64> = p1?
-        .iter()
-        .map(|s| parse_laptime(&s.value))
-        .collect::<Option<_>>()?;
-    let p1_so_far: f64 = p1.get(..done.len())?.iter().sum();
-    (!done.is_empty() && p1.len() == sectors.len())
-        .then(|| so_far + p1[done.len()..].iter().sum::<f64>() * so_far / p1_so_far)
+    let pace = so_far / fastest[..done.len()].iter().sum::<f64>();
+    let rest: f64 = (done.len()..n)
+        .map(|i| {
+            let expected = fastest[i] * pace;
+            match lap.map(|l| l[i]) {
+                Some(t) if t <= expected * (1.0 + REFERENCE_SLACK) => t,
+                _ => expected,
+            }
+        })
+        .sum();
+    Some(so_far + rest)
 }
 
 /// Whether the sector times make up `lap`, to the rounding of the feed.
@@ -694,65 +728,58 @@ mod tests {
     }
 
     #[test]
-    fn projects_from_own_best_lap() {
+    fn projects_from_the_best_lap_where_it_was_quick() {
         let sector = |value: &str, segments: &[u32]| SectorSnap {
             value: value.to_owned(),
             kind: TimeKind::Normal,
             segments: segments.to_vec(),
         };
-        let own = [
-            sector("27.743", &[2049; 4]),
-            sector("39.222", &[2049; 4]),
-            sector("26.200", &[2049; 4]),
-        ];
-        // Singapore Q2, HUL: S1 done, nothing of S2 yet.
+        let fastest = [26.768, 30.008, 19.524];
+        // Mexico City Q1, GAS: S1 and S2 done.
         let lap = [
-            sector("27.578", &[2049; 4]),
-            sector("", &[0; 4]),
-            sector("", &[0; 4]),
+            sector("27.084", &[2049; 4]),
+            sector("31.034", &[2049; 4]),
+            sector("", &[2049, 2049, 0, 0]),
         ];
-        let p = project(&lap, &own, None).unwrap();
-        assert!((p - (27.578 + 39.222 + 26.200)).abs() < 1e-9);
+        let pace = (27.084 + 31.034) / (26.768 + 30.008);
 
-        // Half of S2, coloured: faster than the own best there.
-        let lap = [
-            sector("27.578", &[2049; 4]),
-            sector("", &[2049, 2051, 0, 0]),
-            sector("", &[0; 4]),
-        ];
-        let p = project(&lap, &own, None).unwrap();
-        let want = 27.578 + 39.222 * (1.0 + 2.0 * MINI_COLOURED / 4.0) + 26.200;
+        // A good best lap: its S3 is expected again.
+        let good = [27.2, 31.1, 19.62];
+        let p = project(&lap, Some(&good), &fastest).unwrap();
+        assert!((p - (27.084 + 31.034 + 19.62)).abs() < 1e-9);
+
+        // His best was a prep lap, 22.228 in S3: the fastest S3 at his pace
+        // instead. He did 1:18.194.
+        let prep = [31.111, 38.278, 22.228];
+        let p = project(&lap, Some(&prep), &fastest).unwrap();
+        let want = 27.084 + 31.034 + 19.524 * pace;
         assert!((p - want).abs() < 1e-9);
-        // Grey: slower.
-        let lap = [
-            sector("27.578", &[2049; 4]),
-            sector("", &[2048, 2048, 0, 0]),
-            sector("", &[0; 4]),
-        ];
-        assert!(project(&lap, &own, None).unwrap() > 27.578 + 39.222 + 26.200);
+        assert!((p - 78.194).abs() < 0.1, "{p}");
 
-        // No own best: P1's lap, slowed by the gap so far.
-        let none = [sector("", &[]), sector("", &[]), sector("", &[])];
-        let p1 = [
-            sector("27.260", &[]),
-            sector("38.543", &[]),
-            sector("25.963", &[]),
-        ];
-        let lap = [
-            sector("27.578", &[2049; 4]),
-            sector("", &[0; 4]),
-            sector("", &[0; 4]),
-        ];
-        let p = project(&lap, &none, Some(&p1)).unwrap();
-        assert!((p - (27.578 + (38.543 + 25.963) * 27.578 / 27.260)).abs() < 1e-9);
-        // Nothing to go on before the first sector.
-        let lap = [
+        // No best lap at all: the same.
+        assert_eq!(project(&lap, None, &fastest), Some(want));
+
+        // In the first sector, the best lap again; nothing before the car
+        // reaches a mini-sector, or without a best lap.
+        let mut lap = [
             sector("", &[2049, 0, 0, 0]),
             sector("", &[0; 4]),
             sector("", &[0; 4]),
         ];
-        assert!(project(&lap, &none, Some(&p1)).is_none());
-        assert!(project(&lap, &own, None).is_some());
+        assert_eq!(
+            project(&lap, Some(&good), &fastest),
+            Some(27.2 + 31.1 + 19.62)
+        );
+        assert!(project(&lap, None, &fastest).is_none());
+        lap[0].segments = vec![0; 4];
+        assert!(project(&lap, Some(&good), &fastest).is_none());
+        // Nor without the fastest sectors.
+        let lap = [
+            sector("27.084", &[2049; 4]),
+            sector("", &[0; 4]),
+            sector("", &[0; 4]),
+        ];
+        assert!(project(&lap, Some(&good), &[26.768, f64::INFINITY, 19.524]).is_none());
     }
 
     #[test]

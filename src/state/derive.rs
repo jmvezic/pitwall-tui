@@ -54,8 +54,10 @@ pub struct PushRow {
     /// Ahead (negative) or behind the time that matters to this car, over
     /// the sectors done so far.
     pub benchmark: Option<(Benchmark, f64)>,
-    /// Where the lap would put the car, projected from its own best lap.
+    /// Where the lap would put the car as it crosses the line.
     pub pred: Option<u32>,
+    /// The lap time the lap is heading for.
+    pub projected: Option<f64>,
 }
 
 /// The time a car on a push lap is up against.
@@ -790,6 +792,12 @@ impl State {
                             s.segments.fill(0);
                         }
                     }
+                    for (i, s) in live.iter_mut().enumerate() {
+                        if !self.quali.timed(&r.num, i) {
+                            // The lap before's, until this lap's comes.
+                            s.value.clear();
+                        }
+                    }
                     (q.lap_start?, None, live)
                 } else {
                     let f = self.quali.finished(&r.num)?;
@@ -821,19 +829,17 @@ impl State {
                         Some((lap_delta(&sectors, ref_sectors)?, parse_laptime(best)?))
                     });
                 let benchmark = delta.map(|(d, _)| (kind, d));
-                let pred = end
-                    .is_none()
-                    .then(|| {
-                        let p1_sectors = p1.as_ref().map(|(_, s)| s.as_slice());
-                        let projected = project(&sectors, &q.sectors, p1_sectors)?;
-                        let mine = parse_laptime(&q.best).map_or(projected, |b| b.min(projected));
-                        let ahead = bests
-                            .iter()
-                            .filter(|(n, b)| *n != r.num && b.is_some_and(|b| b < mine))
-                            .count();
-                        Some(ahead as u32 + 1)
-                    })
-                    .flatten();
+                // Against the car's best lap this part, else its best of
+                // the part before.
+                let projected = end.is_none().then(|| {
+                    let times = |l: &[SectorSnap]| -> Option<Vec<f64>> {
+                        l.iter().map(|s| parse_laptime(&s.value)).collect()
+                    };
+                    let lap =
+                        times(&q.sectors).or_else(|| self.quali.last_best(&r.num).and_then(times));
+                    project(&sectors, lap.as_deref(), self.quali.session_fastest())
+                });
+                let projected = projected.flatten();
                 Some(PushRow {
                     num: r.num.clone(),
                     tla: r.tla.clone(),
@@ -841,13 +847,47 @@ impl State {
                     pos: r.pos,
                     start,
                     benchmark,
-                    pred,
+                    pred: None,
+                    projected,
                     end,
                     sectors,
                 })
             })
             .collect();
         rows.sort_by_key(|r| r.start);
+
+        // Where each lap on would put the car when it crosses the line:
+        // against the best times set, and the laps on that started earlier
+        // and so cross first. Ranking every lap on against every other
+        // calls far more of them wrong: a car behind on the road usually
+        // finishes after.
+        let heading: Vec<(String, DateTime<Utc>, f64)> = rows
+            .iter()
+            .filter_map(|p| Some((p.num.clone(), p.start, p.projected?)))
+            .collect();
+        for p in &mut rows {
+            let Some(projected) = p.projected else {
+                continue;
+            };
+            let best_of = |num: &str| bests.iter().find(|(n, _)| *n == num).and_then(|(_, b)| *b);
+            let mine = best_of(&p.num).map_or(projected, |b| b.min(projected));
+            let ahead = bests
+                .iter()
+                .filter(|(n, _)| *n != p.num)
+                .filter(|(n, b)| {
+                    let live = heading
+                        .iter()
+                        .find(|(m, start, _)| m == n && *start < p.start)
+                        .map(|(_, _, t)| *t);
+                    let theirs = match (*b, live) {
+                        (Some(b), Some(l)) => Some(b.min(l)),
+                        (b, l) => b.or(l),
+                    };
+                    theirs.is_some_and(|t| t < mine)
+                })
+                .count();
+            p.pred = Some(ahead as u32 + 1);
+        }
         rows
     }
 
